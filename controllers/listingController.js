@@ -1,12 +1,20 @@
+const mongoose = require("mongoose");
 const Listing = require("../models/Listing");
 const User = require("../models/User");
 const cloudinary = require("../config/cloudinary");
+const { PUBLIC_USER_FIELDS, nameOf } = require("../utils/chatHelpers");
 
 const uploadToCloudinary = (file) =>
   cloudinary.uploader.upload(
     `data:${file.mimetype};base64,${file.buffer.toString("base64")}`,
     { folder: "tradebybarter/listings", resource_type: "image" }
   );
+
+// the poster as other people see them (never email, phone or ID photos)
+const publicOwner = (owner) =>
+  owner && owner._id
+    ? { _id: String(owner._id), name: nameOf(owner), avatarUrl: owner.avatarUrl || "" }
+    : null;
 
 exports.createListing = async (req, res) => {
   try {
@@ -50,10 +58,46 @@ exports.getListings = async (req, res) => {
       filter.$or = [{ title: regex }, { description: regex }, { category: regex }, { wants: regex }];
     }
 
-    const listings = await Listing.find(filter).sort({ createdAt: -1 }).limit(60);
-    res.json(listings);
+    const listings = await Listing.find(filter)
+      .sort({ createdAt: -1 })
+      .limit(60)
+      .populate("owner", PUBLIC_USER_FIELDS)
+      .lean();
+
+    res.json(listings.map((l) => ({ ...l, owner: publicOwner(l.owner) })));
   } catch (error) {
     res.status(500).json({ message: "Could not fetch listings" });
+  }
+};
+
+exports.getListing = async (req, res) => {
+  try {
+    const { id } = req.params;
+    if (!mongoose.isValidObjectId(id)) {
+      return res.status(400).json({ message: "Invalid item" });
+    }
+
+    const listing = await Listing.findById(id)
+      .populate("owner", `${PUBLIC_USER_FIELDS} city bio verification.status createdAt`)
+      .lean();
+    if (!listing) return res.status(404).json({ message: "Item not found" });
+
+    let owner = null;
+    if (listing.owner && listing.owner._id) {
+      const o = listing.owner;
+      owner = {
+        ...publicOwner(o),
+        city: o.city || "",
+        bio: o.bio || "",
+        verified: o.verification?.status === "verified",
+        memberSince: o.createdAt || o._id.getTimestamp(),
+        itemCount: await Listing.countDocuments({ owner: o._id }),
+      };
+    }
+
+    res.json({ ...listing, owner });
+  } catch (error) {
+    res.status(500).json({ message: "Could not load this item" });
   }
 };
 

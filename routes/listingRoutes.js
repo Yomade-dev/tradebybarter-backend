@@ -5,6 +5,7 @@ const requireAuth = require("../middleware/requireAuth");
 const {
   createListing,
   getListings,
+  getListing,
   getMyListings,
   deleteListing,
 } = require("../controllers/listingController");
@@ -18,6 +19,7 @@ const uploadOne = (req, res, next) => {
 
 router.get("/", getListings);
 router.get("/mine", requireAuth, getMyListings);
+router.get("/:id", getListing);
 router.post("/", requireAuth, uploadOne, createListing);
 router.delete("/:id", requireAuth, deleteListing);
 
